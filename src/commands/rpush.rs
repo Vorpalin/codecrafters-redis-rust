@@ -4,7 +4,7 @@ use crate::resp::Frame;
 
 pub static COMMAND: Command = Command {
     name: "RPUSH",
-    arity: 3,
+    arity: -3,
     handler: rpush,
 };
 
