@@ -104,6 +104,13 @@ pub fn parse_u64(arg: &[u8]) -> Result<u64, CommandError> {
         .ok_or(CommandError::NotInteger)
 }
 
+fn parse_i64(arg: &[u8]) -> Result<i64, CommandError> {
+    std::str::from_utf8(arg)
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .ok_or(CommandError::NotInteger)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
