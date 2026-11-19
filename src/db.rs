@@ -256,6 +256,17 @@ impl Db {
             }
         }
     }
+
+    pub fn r#type(&self, key: &[u8]) -> Result<String, WrongType> {
+        let mut map = self.inner.lock().unwrap();
+        purge_if_expired(&mut map, key);
+
+        match map.get(key).map(|e| &e.value) {
+            None => Ok("none".to_string()),
+            Some(Value::String(_)) => Ok("string".to_string()),
+            Some(Value::List(_)) => Ok("list".to_string()),
+        }
+    }
 }
 
 #[cfg(test)]
