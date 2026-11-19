@@ -5,6 +5,7 @@ use std::sync::LazyLock;
 use crate::db::{Db, WrongType};
 use crate::resp::Frame;
 
+pub mod blop;
 pub mod echo;
 pub mod get;
 pub mod llen;
@@ -78,6 +79,7 @@ static REGISTRY: LazyLock<HashMap<&'static str, &'static Command>> = LazyLock::n
         &lpush::COMMAND,
         &llen::COMMAND,
         &lpop::COMMAND,
+        &blop::COMMAND,
     ]
     .into_iter()
     .map(|c| (c.name, c))
