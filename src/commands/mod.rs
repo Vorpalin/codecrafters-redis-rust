@@ -7,10 +7,11 @@ use crate::resp::Frame;
 
 pub mod echo;
 pub mod get;
-pub mod ping;
-pub mod set;
-pub mod rpush;
+pub mod lpush;
 pub mod lrange;
+pub mod ping;
+pub mod rpush;
+pub mod set;
 
 /// Every command has this shape. `args[0]` is the command name itself.
 /// Arity has already been validated when the handler runs.
@@ -65,10 +66,18 @@ impl From<WrongType> for CommandError {
 /// To add a command: create `commands/<name>.rs` exporting a `COMMAND`,
 /// then list it here. Nothing else needs to change.
 static REGISTRY: LazyLock<HashMap<&'static str, &'static Command>> = LazyLock::new(|| {
-    [&ping::COMMAND, &echo::COMMAND, &get::COMMAND, &set::COMMAND, &rpush::COMMAND, &lrange::COMMAND]
-        .into_iter()
-        .map(|c| (c.name, c))
-        .collect()
+    [
+        &ping::COMMAND,
+        &echo::COMMAND,
+        &get::COMMAND,
+        &set::COMMAND,
+        &rpush::COMMAND,
+        &lrange::COMMAND,
+        &lpush::COMMAND,
+    ]
+    .into_iter()
+    .map(|c| (c.name, c))
+    .collect()
 });
 
 /// Looks up the command, validates arity, runs it, and turns errors into RESP errors.
@@ -162,10 +171,7 @@ mod tests {
     #[test]
     fn errors() {
         let db = Db::default();
-        assert_eq!(
-            run(&db, &["NOPE"]),
-            err("ERR unknown command 'NOPE'")
-        );
+        assert_eq!(run(&db, &["NOPE"]), err("ERR unknown command 'NOPE'"));
         assert_eq!(
             run(&db, &["GET"]),
             err("ERR wrong number of arguments for 'get' command")
@@ -175,7 +181,10 @@ mod tests {
             err("ERR wrong number of arguments for 'set' command")
         );
         assert_eq!(run(&db, &["SET", "k", "v", "PX"]), err("ERR syntax error"));
-        assert_eq!(run(&db, &["SET", "k", "v", "BOGUS"]), err("ERR syntax error"));
+        assert_eq!(
+            run(&db, &["SET", "k", "v", "BOGUS"]),
+            err("ERR syntax error")
+        );
         assert_eq!(
             run(&db, &["SET", "k", "v", "PX", "abc"]),
             err("ERR value is not an integer or out of range")

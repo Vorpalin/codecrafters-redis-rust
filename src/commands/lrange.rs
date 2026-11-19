@@ -1,8 +1,7 @@
-
 use super::{Command, CommandError};
+use crate::commands::parse_i64;
 use crate::db::Db;
 use crate::resp::Frame;
-use crate::commands::parse_i64;
 
 pub static COMMAND: Command = Command {
     name: "LRANGE",
@@ -16,7 +15,5 @@ fn lrange(db: &Db, args: &[Vec<u8>]) -> Result<Frame, CommandError> {
 
     let items = db.lrange(&args[1], start, stop)?;
 
-    Ok(Frame::Array(
-        items.into_iter().map(Frame::Bulk).collect()
-    ))
+    Ok(Frame::Array(items.into_iter().map(Frame::Bulk).collect()))
 }

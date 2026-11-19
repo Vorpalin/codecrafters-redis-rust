@@ -36,8 +36,16 @@ fn purge_if_expired(map: &mut Map, key: &[u8]) {
 /// inclusive `(start, stop)` range clamped to the list, or `None` if empty.
 fn normalize_range(start: i64, stop: i64, len: usize) -> Option<(usize, usize)> {
     let len = len as i64;
-    let start = if start < 0 { (len + start).max(0) } else { start };
-    let stop = if stop < 0 { len + stop } else { stop.min(len - 1) };
+    let start = if start < 0 {
+        (len + start).max(0)
+    } else {
+        start
+    };
+    let stop = if stop < 0 {
+        len + stop
+    } else {
+        stop.min(len - 1)
+    };
     if start >= len || stop < 0 || start > stop {
         None
     } else {
@@ -221,7 +229,10 @@ mod tests {
         db.rpush(b"l", items(&["a", "b", "c", "d", "e"])).unwrap();
         assert_eq!(db.lrange(b"l", 1, 3), Ok(items(&["b", "c", "d"])));
         assert_eq!(db.lrange(b"l", -2, -1), Ok(items(&["d", "e"])));
-        assert_eq!(db.lrange(b"l", 0, 100), Ok(items(&["a", "b", "c", "d", "e"])));
+        assert_eq!(
+            db.lrange(b"l", 0, 100),
+            Ok(items(&["a", "b", "c", "d", "e"]))
+        );
         assert_eq!(db.lrange(b"l", -100, 1), Ok(items(&["a", "b"])));
         assert_eq!(db.lrange(b"l", 3, 1), Ok(vec![]));
         assert_eq!(db.lrange(b"l", 5, 10), Ok(vec![]));

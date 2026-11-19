@@ -9,5 +9,7 @@ pub static COMMAND: Command = Command {
 };
 
 fn rpush(db: &Db, args: &[Vec<u8>]) -> Result<Frame, CommandError> {
-    Ok(Frame::Integer(db.rpush(&args[1], (&args[2..]).to_vec())? as i64))
+    Ok(Frame::Integer(
+        db.rpush(&args[1], (&args[2..]).to_vec())? as i64
+    ))
 }
