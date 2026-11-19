@@ -10,6 +10,7 @@ pub mod get;
 pub mod ping;
 pub mod set;
 pub mod rpush;
+pub mod lrange;
 
 /// Every command has this shape. `args[0]` is the command name itself.
 /// Arity has already been validated when the handler runs.
@@ -64,7 +65,7 @@ impl From<WrongType> for CommandError {
 /// To add a command: create `commands/<name>.rs` exporting a `COMMAND`,
 /// then list it here. Nothing else needs to change.
 static REGISTRY: LazyLock<HashMap<&'static str, &'static Command>> = LazyLock::new(|| {
-    [&ping::COMMAND, &echo::COMMAND, &get::COMMAND, &set::COMMAND, &rpush::COMMAND]
+    [&ping::COMMAND, &echo::COMMAND, &get::COMMAND, &set::COMMAND, &rpush::COMMAND, &lrange::COMMAND]
         .into_iter()
         .map(|c| (c.name, c))
         .collect()
