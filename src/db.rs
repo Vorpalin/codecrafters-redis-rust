@@ -201,7 +201,11 @@ impl Db {
         let deadline = if timeout.is_zero() {
             None
         } else {
-            Instant::now().checked_add(timeout)
+            Some(
+                Instant::now()
+                    .checked_add(timeout)
+                    .expect("BLPOP timeout is too large"),
+            )
         };
 
         let mut map = self.inner.lock().unwrap();
