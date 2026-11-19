@@ -1,21 +1,32 @@
-use std::sync::{LazyLock, Mutex};
 use std::collections::HashMap;
+use std::sync::{LazyLock, Mutex};
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub fn set(key: &str, value: &str, arguments: Vec<String>, store: &LazyLock<Mutex<HashMap<String, (String, i128)>>>) -> Vec<u8> {
-    store.lock().unwrap().insert(key.to_string(), (value.to_string(), 0));
+pub fn set(
+    key: &str,
+    value: &str,
+    arguments: Vec<String>,
+    store: &LazyLock<Mutex<HashMap<String, (String, i128)>>>,
+) -> Vec<u8> {
+    store
+        .lock()
+        .unwrap()
+        .insert(key.to_string(), (value.to_string(), 0));
 
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
+        .expect("REASON")
         .as_millis();
-
 
     for i in 0..arguments.len() {
         if arguments[i].to_uppercase() == "PX" {
             if i + 1 < arguments.len() {
                 if let Ok(expiration) = arguments[i + 1].parse::<i128>() {
-                    store.lock().unwrap().insert(key.to_string(), (value.to_string(), now as i128 + expiration));
+                    store.lock().unwrap().insert(
+                        key.to_string(),
+                        (value.to_string(), now as i128 + expiration),
+                    );
                 }
             }
         }

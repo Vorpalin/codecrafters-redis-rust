@@ -1,10 +1,20 @@
-use std::sync::{LazyLock, Mutex};
 use std::collections::HashMap;
+use std::sync::{LazyLock, Mutex};
 
-pub fn get(key: &str, store: &LazyLock<Mutex<HashMap<String, (String, i128)>>>>) -> Vec<u8> {
+use std::time::{SystemTime, UNIX_EPOCH};
+
+pub fn get(key: &str, store: &LazyLock<Mutex<HashMap<String, (String, i128)>>>) -> Vec<u8> {
     let mut response = Vec::new();
     response.extend_from_slice(b"$");
-    if let Some(value, time) = store.lock().unwrap().get(key) && (time == &0 || *time > chrono::Utc::now().timestamp_millis()) {
+
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("REASON")
+        .as_millis();
+
+    if let Some((value, time)) = store.lock().unwrap().get(key)
+        && (time == &0 || *time > now as i128)
+    {
         response.extend_from_slice(&(value.len() as u64).to_string().into_bytes());
         response.extend_from_slice(b"\r\n");
         response.extend_from_slice(value.as_bytes());
