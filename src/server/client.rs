@@ -30,7 +30,11 @@ pub async fn handle_client(stream: TcpStream, db: Db) -> Result<(), Error> {
         }
 
         out.clear();
-        commands::dispatch(&db, &args).encode(&mut out);
+
+        let db = db.clone();
+        let frame = tokio::task::spawn_blocking(move || commands::dispatch(&db, &args)).await?;
+
+        frame.encode(&mut out);
         writer.write_all(&out).await?;
     }
 }
