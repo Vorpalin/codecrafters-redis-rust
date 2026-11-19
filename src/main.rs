@@ -1,27 +1,11 @@
-use std::net::TcpListener;
-
 mod commands;
-mod execution_loop;
+mod server;
 
-use execution_loop::exec_loop;
+use crate::server::server::run;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("Logs from your program will appear here!");
-
-    let listener = TcpListener::bind("127.0.0.1:6379")?;
-
-    for stream in listener.incoming() {
-        match stream {
-            Ok(stream) => {
-                println!("accepted new connection");
-
-                let _ = exec_loop(stream);
-            }
-            Err(e) => {
-                println!("error: {}", e);
-            }
-        }
-    }
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    run("127.0.0.1:6379").await?;
 
     Ok(())
 }
