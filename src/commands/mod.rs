@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::sync::LazyLock;
 
-use crate::db::Db;
+use crate::db::{Db, WrongType};
 use crate::resp::Frame;
 
 pub mod echo;
@@ -36,6 +36,7 @@ impl Command {
 pub enum CommandError {
     Syntax,
     NotInteger,
+    WrongType,
 }
 
 impl fmt::Display for CommandError {
@@ -43,11 +44,21 @@ impl fmt::Display for CommandError {
         match self {
             Self::Syntax => write!(f, "ERR syntax error"),
             Self::NotInteger => write!(f, "ERR value is not an integer or out of range"),
+            Self::WrongType => write!(
+                f,
+                "WRONGTYPE Operation against a key holding the wrong kind of value"
+            ),
         }
     }
 }
 
 impl std::error::Error for CommandError {}
+
+impl From<WrongType> for CommandError {
+    fn from(_: WrongType) -> Self {
+        CommandError::WrongType
+    }
+}
 
 /// To add a command: create `commands/<name>.rs` exporting a `COMMAND`,
 /// then list it here. Nothing else needs to change.
@@ -127,6 +138,16 @@ mod tests {
         assert_eq!(run(&db, &["GET", "k"]), Frame::Bulk(b"v".to_vec()));
         std::thread::sleep(std::time::Duration::from_millis(40));
         assert_eq!(run(&db, &["GET", "k"]), Frame::Null);
+    }
+
+    #[test]
+    fn get_on_a_list_is_wrongtype() {
+        let db = Db::default();
+        db.rpush(b"l", vec![b"a".to_vec()]).unwrap();
+        assert_eq!(
+            run(&db, &["GET", "l"]),
+            err("WRONGTYPE Operation against a key holding the wrong kind of value")
+        );
     }
 
     #[test]

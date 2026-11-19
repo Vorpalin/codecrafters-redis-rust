@@ -9,5 +9,5 @@ pub static COMMAND: Command = Command {
 };
 
 fn get(db: &Db, args: &[Vec<u8>]) -> Result<Frame, CommandError> {
-    Ok(db.get(&args[1]).map_or(Frame::Null, Frame::Bulk))
+    Ok(db.get(&args[1])?.map_or(Frame::Null, Frame::Bulk))
 }
