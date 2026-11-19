@@ -1,37 +1,33 @@
-use std::collections::HashMap;
-use std::sync::{LazyLock, Mutex};
+use std::time::Duration;
 
-use std::time::{SystemTime, UNIX_EPOCH};
+use super::{Command, CommandError, parse_u64};
+use crate::db::Db;
+use crate::resp::Frame;
 
-pub fn set(
-    key: &str,
-    value: &str,
-    arguments: Vec<String>,
-    store: &LazyLock<Mutex<HashMap<String, (String, i128)>>>,
-) -> Vec<u8> {
-    store
-        .lock()
-        .unwrap()
-        .insert(key.to_string(), (value.to_string(), 0));
+pub static COMMAND: Command = Command {
+    name: "SET",
+    arity: -3,
+    handler: set,
+};
 
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("REASON")
-        .as_millis();
+fn set(db: &Db, args: &[Vec<u8>]) -> Result<Frame, CommandError> {
+    let mut ttl = None;
 
-    for i in 0..arguments.len() {
-        if arguments[i].to_uppercase() == "PX" {
-            if i + 1 < arguments.len() {
-                if let Ok(expiration) = arguments[i + 1].parse::<i128>() {
-                    store.lock().unwrap().insert(
-                        key.to_string(),
-                        (value.to_string(), now as i128 + expiration),
-                    );
-                }
+    let mut options = args[3..].iter();
+    while let Some(option) = options.next() {
+        match option.to_ascii_uppercase().as_slice() {
+            b"PX" => {
+                let ms = parse_u64(options.next().ok_or(CommandError::Syntax)?)?;
+                ttl = Some(Duration::from_millis(ms));
             }
+            b"EX" => {
+                let secs = parse_u64(options.next().ok_or(CommandError::Syntax)?)?;
+                ttl = Some(Duration::from_secs(secs));
+            }
+            _ => return Err(CommandError::Syntax),
         }
     }
-    let mut response = Vec::new();
-    response.extend_from_slice(b"+OK\r\n");
-    response
+
+    db.set(args[1].clone(), args[2].clone(), ttl);
+    Ok(Frame::ok())
 }
