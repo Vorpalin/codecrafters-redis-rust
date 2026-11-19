@@ -22,6 +22,6 @@ fn blpop(db: &Db, args: &[Vec<u8>]) -> Result<Frame, CommandError> {
 
     match db.blpop(keys, timeout)? {
         Some((key, value)) => Ok(Frame::Array(vec![Frame::Bulk(key), Frame::Bulk(value)])),
-        None => Ok(Frame::Null),
+        None => Ok(Frame::NullArray),
     }
 }

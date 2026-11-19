@@ -16,6 +16,7 @@ pub enum Frame {
     Integer(i64),
     Bulk(Vec<u8>),
     Null,
+    NullArray,
     Array(Vec<Frame>),
 }
 
@@ -43,6 +44,7 @@ impl Frame {
                 out.extend_from_slice(b"\r\n");
             }
             Frame::Null => out.extend_from_slice(b"$-1\r\n"),
+            Frame::NullArray => out.extend_from_slice(b"*-1\r\n"),
             Frame::Array(items) => {
                 out.extend_from_slice(format!("*{}\r\n", items.len()).as_bytes());
                 for item in items {
