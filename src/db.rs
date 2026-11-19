@@ -1,5 +1,5 @@
 use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 /// Returned when an operation is applied to a key holding a different type
@@ -63,6 +63,7 @@ fn normalize_range(start: i64, stop: i64, len: usize) -> Option<(usize, usize)> 
 #[derive(Clone, Default)]
 pub struct Db {
     inner: Arc<Mutex<Map>>,
+    list_changed: Arc<Condvar>,
 }
 
 // List operations are unused by the binary until their commands are added.
@@ -106,25 +107,38 @@ impl Db {
     }
 
     fn push(&self, key: &[u8], items: Vec<Vec<u8>>, front: bool) -> Result<usize, WrongType> {
+        let should_notify = !items.is_empty();
         let mut map = self.inner.lock().unwrap();
         purge_if_expired(&mut map, key);
 
-        let entry = map.entry(key.to_vec()).or_insert_with(|| Entry {
-            value: Value::List(VecDeque::new()),
-            expires_at: None,
-        });
-        let Value::List(list) = &mut entry.value else {
-            return Err(WrongType);
+        let len = {
+            let entry = map.entry(key.to_vec()).or_insert_with(|| Entry {
+                value: Value::List(VecDeque::new()),
+                expires_at: None,
+            });
+
+            let Value::List(list) = &mut entry.value else {
+                return Err(WrongType);
+            };
+
+            for item in items {
+                if front {
+                    list.push_front(item);
+                } else {
+                    list.push_back(item);
+                }
+            }
+
+            list.len()
         };
 
-        for item in items {
-            if front {
-                list.push_front(item);
-            } else {
-                list.push_back(item);
-            }
+        drop(map);
+
+        if should_notify {
+            self.list_changed.notify_all();
         }
-        Ok(list.len())
+
+        Ok(len)
     }
 
     /// Inclusive range; negative indices count from the end. Missing key = empty.
@@ -177,6 +191,66 @@ impl Db {
             map.remove(key);
         }
         Ok(Some(popped))
+    }
+
+    pub fn blpop(
+        &self,
+        keys: &[Vec<u8>],
+        timeout: Duration,
+    ) -> Result<Option<(Vec<u8>, Vec<u8>)>, WrongType> {
+        let deadline = if timeout.is_zero() {
+            None
+        } else {
+            Instant::now().checked_add(timeout)
+        };
+
+        let mut map = self.inner.lock().unwrap();
+
+        loop {
+            // Check every key in the requested order.
+            for key in keys {
+                purge_if_expired(&mut map, key);
+
+                let popped = match map.get_mut(key) {
+                    None => None,
+                    Some(entry) => match &mut entry.value {
+                        Value::String(_) => return Err(WrongType),
+                        Value::List(list) => list.pop_front().map(|value| (value, list.is_empty())),
+                    },
+                };
+
+                if let Some((value, is_empty)) = popped {
+                    if is_empty {
+                        map.remove(key);
+                    }
+
+                    return Ok(Some((key.clone(), value)));
+                }
+            }
+
+            // No element was available.
+            match deadline {
+                None => {
+                    // Infinite wait.
+                    map = self.list_changed.wait(map).unwrap();
+                }
+                Some(deadline) => {
+                    let remaining = deadline.saturating_duration_since(Instant::now());
+
+                    if remaining.is_zero() {
+                        return Ok(None);
+                    }
+
+                    let (guard, result) = self.list_changed.wait_timeout(map, remaining).unwrap();
+
+                    map = guard;
+
+                    if result.timed_out() {
+                        return Ok(None);
+                    }
+                }
+            }
+        }
     }
 }
 
