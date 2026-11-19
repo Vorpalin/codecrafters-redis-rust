@@ -11,5 +11,5 @@ pub static COMMAND: Command = Command {
 fn r#type(db: &Db, args: &[Vec<u8>]) -> Result<Frame, CommandError> {
     let key = &args[1];
     let type_name = db.r#type(key)?;
-    Ok(Frame::Bulk(type_name.into_bytes()))
+    Ok(Frame::Simple(type_name.into_bytes()))
 }
