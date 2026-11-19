@@ -1,4 +1,3 @@
-
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
 
@@ -20,18 +19,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 let mut reader = BufReader::new(stream.try_clone()?);
 
-                let mut line = String::new();
-                reader.read_line(&mut line)?;
+                loop {
+                    let mut line = String::new();
 
-                if line.starts_with('*') {
+                    // Read the array header
+                    if reader.read_line(&mut line)? == 0 {
+                        break;
+                    }
+
+                    if !line.starts_with('*') {
+                        break;
+                    }
+
+                    // Read the bulk string header
                     let mut length = String::new();
                     reader.read_line(&mut length)?;
 
+                    // Read the command
                     let mut command = String::new();
                     reader.read_line(&mut command)?;
 
-                    if command.trim() == "PING" {
-                        stream.write_all(ping())?;
+                    match command.trim() {
+                        "PING" => {
+                            stream.write_all(b"+PONG\r\n")?;
+                        }
+                        _ => {
+                            stream.write_all(b"-ERR unknown command\r\n")?;
+                        }
                     }
                 }
             }
