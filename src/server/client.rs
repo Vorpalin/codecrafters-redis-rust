@@ -13,7 +13,7 @@ const MAX_BULK_LEN: usize = 512 * 1024 * 1024;
 
 // A plain std Mutex is fine here as long as the guard is never held across an `.await`.
 // The command functions lock internally and return, so that holds.
-static STORE: LazyLock<Mutex<HashMap<String, String>>> =
+static STORE: LazyLock<Mutex<HashMap<String, (String, i128)>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 fn parse_header(line: &str, prefix: char) -> Option<usize> {
@@ -88,7 +88,11 @@ pub async fn handle_client(stream: TcpStream) -> Result<(), Error> {
                     // args[1] is the key, args[2] is the value
                     let key = arg_str(&args[1]);
                     let value = arg_str(&args[2]);
-                    writer.write_all(&set::set(&key, &value, &STORE)).await?;
+                    let mut arguments = Vec::new();
+                    for arg in args.iter().skip(3) {
+                        arguments.push(arg_str(arg));
+                    }
+                    writer.write_all(&set::set(&key, &value, arguments, &STORE)).await?;
                 }
             }
             b"GET" => {
