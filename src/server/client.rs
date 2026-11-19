@@ -1,7 +1,7 @@
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 
-use crate::commands::ping;
+use crate::commands::{ping, echo};
 
 type Error = Box<dyn std::error::Error + Send + Sync>;
 
@@ -54,6 +54,13 @@ pub async fn handle_client(stream: TcpStream) -> Result<(), Error> {
 
         match name.to_ascii_uppercase().as_slice() {
             b"PING" => writer.write_all(ping::ping()).await?,
+            b"ECHO" => {
+                if let Some(message) = args.get(1) {
+                    writer.write_all(&echo::echo(&String::from_utf8_lossy(message))).await?;
+                } else {
+                    writer.write_all(b"-ERR wrong number of arguments for 'echo' command\r\n").await?;
+                }
+            }
             _ => writer.write_all(b"-ERR unknown command\r\n").await?,
         }
     }
