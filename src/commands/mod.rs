@@ -45,6 +45,8 @@ pub enum CommandError {
     Syntax,
     NotInteger,
     WrongType,
+    InvalidStreamId,
+    StreamIdNotGreater,
 }
 
 impl fmt::Display for CommandError {
@@ -55,6 +57,14 @@ impl fmt::Display for CommandError {
             Self::WrongType => write!(
                 f,
                 "WRONGTYPE Operation against a key holding the wrong kind of value"
+            ),
+            Self::InvalidStreamId => write!(
+                f,
+                "ERR Invalid stream ID specified as stream command argument"
+            ),
+            Self::StreamIdNotGreater => write!(
+                f,
+                "ERR The ID specified in XADD is equal or smaller than the target stream top item"
             ),
         }
     }

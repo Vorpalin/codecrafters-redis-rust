@@ -12,9 +12,63 @@ struct Stream {
     last_generated_id: StreamId,
 }
 
-struct StreamId {
+/// Redis Stream entry identifier: `milliseconds-sequence`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct StreamId {
     milliseconds: u64,
     sequence: u64,
+}
+
+impl StreamId {
+    /// Parses a complete Redis stream ID (both components are required).
+    pub fn parse(bytes: &[u8]) -> Result<Self, XAddError> {
+        let text = std::str::from_utf8(bytes).map_err(|_| XAddError::InvalidId)?;
+        let (milliseconds, sequence) = text.split_once('-').ok_or(XAddError::InvalidId)?;
+        if milliseconds.is_empty() || sequence.is_empty() || sequence.contains('-') {
+            return Err(XAddError::InvalidId);
+        }
+
+        let milliseconds = milliseconds.parse().map_err(|_| XAddError::InvalidId)?;
+        let sequence = sequence.parse().map_err(|_| XAddError::InvalidId)?;
+        Ok(Self {
+            milliseconds,
+            sequence,
+        })
+    }
+
+    fn next_after(last: Self) -> Self {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+            .min(u64::MAX as u128) as u64;
+
+        if now > last.milliseconds {
+            Self {
+                milliseconds: now,
+                sequence: 0,
+            }
+        } else {
+            Self {
+                milliseconds: last.milliseconds,
+                sequence: last.sequence.saturating_add(1),
+            }
+        }
+    }
+}
+
+impl std::fmt::Display for StreamId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}-{}", self.milliseconds, self.sequence)
+    }
+}
+
+/// Errors specific to XADD.
+#[derive(Debug, PartialEq, Eq)]
+pub enum XAddError {
+    WrongType,
+    InvalidId,
+    IdNotGreater,
 }
 
 struct StreamEntry {
@@ -92,7 +146,7 @@ impl Db {
         match map.get(key).map(|e| &e.value) {
             None => Ok(None),
             Some(Value::String(s)) => Ok(Some(s.clone())),
-            Some(Value::List(_)) => Err(WrongType),
+            Some(Value::List(_)) | Some(Value::Stream(_)) => Err(WrongType),
         }
     }
 
@@ -163,7 +217,7 @@ impl Db {
 
         match map.get(key).map(|e| &e.value) {
             None => Ok(Vec::new()),
-            Some(Value::String(_)) => Err(WrongType),
+            Some(Value::String(_)) | Some(Value::Stream(_)) => Err(WrongType),
             Some(Value::List(list)) => Ok(match normalize_range(start, stop, list.len()) {
                 None => Vec::new(),
                 Some((s, e)) => list.iter().skip(s).take(e - s + 1).cloned().collect(),
@@ -178,7 +232,7 @@ impl Db {
 
         match map.get(key).map(|e| &e.value) {
             None => Ok(0),
-            Some(Value::String(_)) => Err(WrongType),
+            Some(Value::String(_)) | Some(Value::Stream(_)) => Err(WrongType),
             Some(Value::List(list)) => Ok(list.len()),
         }
     }
@@ -233,7 +287,7 @@ impl Db {
                 let popped = match map.get_mut(key) {
                     None => None,
                     Some(entry) => match &mut entry.value {
-                        Value::String(_) => return Err(WrongType),
+                        Value::String(_) | Value::Stream(_) => return Err(WrongType),
                         Value::List(list) => list.pop_front().map(|value| (value, list.is_empty())),
                     },
                 };
@@ -280,15 +334,22 @@ impl Db {
             None => Ok("none".to_string()),
             Some(Value::String(_)) => Ok("string".to_string()),
             Some(Value::List(_)) => Ok("list".to_string()),
+            Some(Value::Stream(_)) => Ok("stream".to_string()),
         }
     }
 
+    /// Adds one entry. Explicit IDs must be strictly increasing; `None` generates an ID.
     pub fn xadd(
         &self,
         key: &[u8],
         id: Option<StreamId>,
         fields: Vec<(Vec<u8>, Vec<u8>)>,
-    ) -> Result<StreamId, WrongType> {
+    ) -> Result<StreamId, XAddError> {
+        // Redis reserves 0-0 and requires every explicit ID to be greater.
+        if id.is_some_and(|id| id.milliseconds == 0 && id.sequence == 0) {
+            return Err(XAddError::IdNotGreater);
+        }
+
         let mut map = self.inner.lock().unwrap();
         purge_if_expired(&mut map, key);
 
@@ -304,31 +365,21 @@ impl Db {
         });
 
         let stream = match &mut entry.value {
-            Value::Stream(s) => s,
-            _ => return Err(WrongType),
+            Value::Stream(stream) => stream,
+            _ => return Err(XAddError::WrongType),
         };
 
         let new_id = match id {
             Some(id) => id,
-            None => {
-                // Generate a new ID based on the last generated ID.
-                let now = Instant::now();
-                let milliseconds = now.elapsed().as_millis() as u64;
-                if milliseconds > stream.last_generated_id.milliseconds {
-                    stream.last_generated_id = StreamId {
-                        milliseconds,
-                        sequence: 0,
-                    };
-                } else {
-                    stream.last_generated_id.sequence += 1;
-                }
-                stream.last_generated_id.clone()
-            }
+            None => StreamId::next_after(stream.last_generated_id),
         };
 
-        stream
-            .entries
-            .insert(new_id.clone(), StreamEntry { fields });
+        if new_id <= stream.last_generated_id {
+            return Err(XAddError::IdNotGreater);
+        }
+
+        stream.entries.insert(new_id, StreamEntry { fields });
+        stream.last_generated_id = new_id;
         Ok(new_id)
     }
 }
@@ -426,5 +477,68 @@ mod tests {
         db.rpush(b"k", items(&["a"])).unwrap();
         db.set(b("k"), b("v"), None);
         assert_eq!(db.get(b"k"), Ok(Some(b("v"))));
+    }
+
+    #[test]
+    fn xadd_generates_monotonic_ids_and_creates_stream() {
+        let db = Db::default();
+        let first = db
+            .xadd(b"events", None, vec![(b("name"), b("Alice"))])
+            .unwrap();
+        let second = db
+            .xadd(b"events", None, vec![(b("name"), b("Bob"))])
+            .unwrap();
+        assert!(second > first);
+        assert_eq!(db.r#type(b"events").unwrap(), "stream");
+    }
+
+    #[test]
+    fn xadd_accepts_increasing_explicit_ids_and_advances_generator() {
+        let db = Db::default();
+        let explicit = StreamId::parse(b"1000-7").unwrap();
+        assert_eq!(
+            db.xadd(b"events", Some(explicit), vec![(b("f"), b("v"))]),
+            Ok(explicit)
+        );
+        let generated = db.xadd(b"events", None, vec![(b("f"), b("v"))]).unwrap();
+        assert!(generated > explicit);
+    }
+
+    #[test]
+    fn xadd_rejects_duplicate_or_decreasing_ids() {
+        let db = Db::default();
+        let id = StreamId::parse(b"1000-1").unwrap();
+        db.xadd(b"events", Some(id), vec![(b("f"), b("v"))])
+            .unwrap();
+        assert_eq!(
+            db.xadd(b"events", Some(id), vec![(b("f"), b("v"))]),
+            Err(XAddError::IdNotGreater)
+        );
+        assert_eq!(
+            db.xadd(
+                b"events",
+                Some(StreamId::parse(b"999-9").unwrap()),
+                vec![(b("f"), b("v"))],
+            ),
+            Err(XAddError::IdNotGreater)
+        );
+    }
+
+    #[test]
+    fn xadd_rejects_wrong_type_and_zero_id() {
+        let db = Db::default();
+        db.set(b("key"), b("value"), None);
+        assert_eq!(
+            db.xadd(b"key", None, vec![(b("f"), b("v"))]),
+            Err(XAddError::WrongType)
+        );
+        assert_eq!(
+            db.xadd(
+                b"stream",
+                Some(StreamId::parse(b"0-0").unwrap()),
+                vec![(b("f"), b("v"))],
+            ),
+            Err(XAddError::IdNotGreater)
+        );
     }
 }
