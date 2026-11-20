@@ -30,6 +30,7 @@ fn xadd(db: &Db, args: &[Vec<u8>]) -> Result<Frame, CommandError> {
         XAddError::WrongType => CommandError::WrongType,
         XAddError::InvalidId => CommandError::InvalidStreamId,
         XAddError::IdNotGreater => CommandError::StreamIdNotGreater,
+        XAddError::ZeroId => CommandError::ZeroStreamId,
     })?;
 
     Ok(Frame::Bulk(id.to_string().into_bytes()))

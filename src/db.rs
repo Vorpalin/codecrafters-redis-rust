@@ -69,6 +69,7 @@ pub enum XAddError {
     WrongType,
     InvalidId,
     IdNotGreater,
+    ZeroId,
 }
 
 struct StreamEntry {
@@ -347,7 +348,7 @@ impl Db {
     ) -> Result<StreamId, XAddError> {
         // Redis reserves 0-0 and requires every explicit ID to be greater.
         if id.is_some_and(|id| id.milliseconds == 0 && id.sequence == 0) {
-            return Err(XAddError::IdNotGreater);
+            return Err(XAddError::ZeroId);
         }
 
         let mut map = self.inner.lock().unwrap();

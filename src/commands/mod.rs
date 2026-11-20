@@ -47,6 +47,7 @@ pub enum CommandError {
     WrongType,
     InvalidStreamId,
     StreamIdNotGreater,
+    ZeroStreamId,
 }
 
 impl fmt::Display for CommandError {
@@ -66,6 +67,9 @@ impl fmt::Display for CommandError {
                 f,
                 "ERR The ID specified in XADD is equal or smaller than the target stream top item"
             ),
+            Self::ZeroStreamId => {
+                write!(f, "ERR The ID specified in XADD must be greater than 0-0")
+            }
         }
     }
 }
