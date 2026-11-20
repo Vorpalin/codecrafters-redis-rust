@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
@@ -7,9 +7,24 @@ use std::time::{Duration, Instant};
 #[derive(Debug, PartialEq, Eq)]
 pub struct WrongType;
 
+struct Stream {
+    entries: BTreeMap<StreamId, StreamEntry>,
+    last_generated_id: StreamId,
+}
+
+struct StreamId {
+    milliseconds: u64,
+    sequence: u64,
+}
+
+struct StreamEntry {
+    fields: Vec<(Vec<u8>, Vec<u8>)>,
+}
+
 enum Value {
     String(Vec<u8>),
     List(VecDeque<Vec<u8>>),
+    Stream(Stream),
 }
 
 struct Entry {
@@ -266,6 +281,55 @@ impl Db {
             Some(Value::String(_)) => Ok("string".to_string()),
             Some(Value::List(_)) => Ok("list".to_string()),
         }
+    }
+
+    pub fn xadd(
+        &self,
+        key: &[u8],
+        id: Option<StreamId>,
+        fields: Vec<(Vec<u8>, Vec<u8>)>,
+    ) -> Result<StreamId, WrongType> {
+        let mut map = self.inner.lock().unwrap();
+        purge_if_expired(&mut map, key);
+
+        let entry = map.entry(key.to_vec()).or_insert_with(|| Entry {
+            value: Value::Stream(Stream {
+                entries: BTreeMap::new(),
+                last_generated_id: StreamId {
+                    milliseconds: 0,
+                    sequence: 0,
+                },
+            }),
+            expires_at: None,
+        });
+
+        let stream = match &mut entry.value {
+            Value::Stream(s) => s,
+            _ => return Err(WrongType),
+        };
+
+        let new_id = match id {
+            Some(id) => id,
+            None => {
+                // Generate a new ID based on the last generated ID.
+                let now = Instant::now();
+                let milliseconds = now.elapsed().as_millis() as u64;
+                if milliseconds > stream.last_generated_id.milliseconds {
+                    stream.last_generated_id = StreamId {
+                        milliseconds,
+                        sequence: 0,
+                    };
+                } else {
+                    stream.last_generated_id.sequence += 1;
+                }
+                stream.last_generated_id.clone()
+            }
+        };
+
+        stream
+            .entries
+            .insert(new_id.clone(), StreamEntry { fields });
+        Ok(new_id)
     }
 }
 
