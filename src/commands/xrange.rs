@@ -8,9 +8,33 @@ pub static COMMAND: Command = Command {
     handler: xrange,
 };
 
+fn parse_range_bound(bytes: &[u8], is_start: bool) -> Result<StreamId, CommandError> {
+    match bytes {
+        b"-" if is_start => Ok(StreamId::MIN),
+        b"+" if !is_start => Ok(StreamId::MAX),
+        b"-" | b"+" => Err(CommandError::InvalidStreamId),
+        _ => {
+            let text = std::str::from_utf8(bytes).map_err(|_| CommandError::InvalidStreamId)?;
+
+            if !text.contains('-') {
+                let milliseconds = text
+                    .parse::<u64>()
+                    .map_err(|_| CommandError::InvalidStreamId)?;
+
+                return Ok(StreamId {
+                    milliseconds,
+                    sequence: if is_start { 0 } else { u64::MAX },
+                });
+            }
+
+            StreamId::parse(bytes).map_err(|_| CommandError::InvalidStreamId)
+        }
+    }
+}
+
 fn xrange(db: &Db, args: &[Vec<u8>]) -> Result<Frame, CommandError> {
-    let start = StreamId::parse(&args[2]).map_err(|_| CommandError::InvalidStreamId)?;
-    let end = StreamId::parse(&args[3]).map_err(|_| CommandError::InvalidStreamId)?;
+    let start = parse_range_bound(&args[2], true)?;
+    let end = parse_range_bound(&args[3], false)?;
 
     let entries = db
         .xrange(&args[1], start, end)

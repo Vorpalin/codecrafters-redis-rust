@@ -21,11 +21,21 @@ struct Stream {
 /// Redis Stream entry identifier: `milliseconds-sequence`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct StreamId {
-    milliseconds: u64,
-    sequence: u64,
+    pub milliseconds: u64,
+    pub sequence: u64,
 }
 
 impl StreamId {
+    pub const MIN: Self = Self {
+        milliseconds: 0,
+        sequence: 0,
+    };
+
+    pub const MAX: Self = Self {
+        milliseconds: u64::MAX,
+        sequence: u64::MAX,
+    };
+
     /// Parses a complete Redis stream ID (both components are required).
     pub fn parse(bytes: &[u8]) -> Result<Self, XAddError> {
         let text = std::str::from_utf8(bytes).map_err(|_| XAddError::InvalidId)?;
@@ -422,6 +432,10 @@ impl Db {
         start: StreamId,
         end: StreamId,
     ) -> Result<Vec<(StreamId, Vec<(Vec<u8>, Vec<u8>)>)>, WrongType> {
+        if start > end {
+            return Ok(Vec::new());
+        }
+
         let mut map = self.inner.lock().unwrap();
         purge_if_expired(&mut map, key);
 
