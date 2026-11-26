@@ -1,3 +1,4 @@
+use crate::resp::Frame;
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
@@ -20,8 +21,13 @@ pub enum IncrError {
 }
 
 pub struct Multi {
-    db: Db,
-    commands: Vec<(String, Vec<Vec<u8>>)>,
+    commands: Vec<Vec<Vec<u8>>>,
+}
+
+impl Multi {
+    pub fn queue(&mut self, args: Vec<Vec<u8>>) {
+        self.commands.push(args);
+    }
 }
 
 struct Stream {
@@ -606,21 +612,16 @@ impl Db {
 
     pub fn multi(&self) -> Multi {
         Multi {
-            db: self.clone(),
             commands: Vec::new(),
         }
     }
 
-    pub fn exec(&self, multi: Multi) -> Result<Vec<Frame>, CommandError> {
-        let mut results = Vec::new();
-        for (name, args) in multi.commands {
-            let frame = dispatch(&self, &args);
-            if let Frame::Error(_) = frame {
-                return Err(CommandError::ExecError);
-            }
-            results.push(frame);
-        }
-        Ok(results)
+    pub fn exec(&self, multi: Multi) -> Vec<Frame> {
+        multi
+            .commands
+            .iter()
+            .map(|args| crate::commands::dispatch_immediate(self, args))
+            .collect()
     }
 }
 

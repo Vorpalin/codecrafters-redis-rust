@@ -7,14 +7,12 @@ use crate::resp::Frame;
 
 pub mod blpop;
 pub mod echo;
-pub mod exec;
 pub mod get;
 pub mod incr;
 pub mod llen;
 pub mod lpop;
 pub mod lpush;
 pub mod lrange;
-pub mod multi;
 pub mod ping;
 pub mod rpush;
 pub mod set;
@@ -108,8 +106,6 @@ static REGISTRY: LazyLock<HashMap<&'static str, &'static Command>> = LazyLock::n
         &xread::COMMAND,
         &xlen::COMMAND,
         &incr::COMMAND,
-        &multi::COMMAND,
-        &exec::COMMAND,
     ]
     .into_iter()
     .map(|c| (c.name, c))
@@ -118,7 +114,55 @@ static REGISTRY: LazyLock<HashMap<&'static str, &'static Command>> = LazyLock::n
 
 /// Looks up the command, validates arity, runs it, and turns errors into RESP errors.
 /// `args` must not be empty.
-pub fn dispatch(db: &Db, args: &[Vec<u8>]) -> Frame {
+pub fn dispatch(db: &Db, args: &[Vec<u8>], transaction: &mut Option<crate::db::Multi>) -> Frame {
+    if args.is_empty() {
+        return Frame::Error("ERR empty command".into());
+    }
+
+    let name = String::from_utf8_lossy(&args[0]).to_ascii_uppercase();
+
+    match name.as_str() {
+        "MULTI" => {
+            if args.len() != 1 {
+                return Frame::Error("ERR wrong number of arguments for 'multi' command".into());
+            }
+
+            if transaction.is_some() {
+                return Frame::Error("ERR MULTI calls can not be nested".into());
+            }
+
+            *transaction = Some(db.multi());
+            return Frame::Simple("OK".into());
+        }
+
+        "EXEC" => {
+            if args.len() != 1 {
+                return Frame::Error("ERR wrong number of arguments for 'exec' command".into());
+            }
+
+            let Some(multi) = transaction.take() else {
+                return Frame::Error("ERR EXEC without MULTI".into());
+            };
+
+            return Frame::Array(db.exec(multi));
+        }
+
+        _ => {}
+    }
+
+    if let Some(multi) = transaction.as_mut() {
+        multi.queue(args.to_vec());
+        return Frame::Simple("QUEUED".into());
+    }
+
+    dispatch_immediate(db, args)
+}
+
+pub(crate) fn dispatch_immediate(db: &Db, args: &[Vec<u8>]) -> Frame {
+    if args.is_empty() {
+        return Frame::Error("ERR empty command".into());
+    }
+
     let name = String::from_utf8_lossy(&args[0]).to_ascii_uppercase();
 
     let Some(cmd) = REGISTRY.get(name.as_str()) else {
@@ -162,7 +206,9 @@ mod tests {
 
     pub fn run(db: &Db, parts: &[&str]) -> Frame {
         let args: Vec<Vec<u8>> = parts.iter().map(|p| p.as_bytes().to_vec()).collect();
-        dispatch(db, &args)
+
+        let mut transaction = None;
+        dispatch(db, &args, &mut transaction)
     }
 
     fn err(msg: &str) -> Frame {

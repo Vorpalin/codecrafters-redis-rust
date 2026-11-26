@@ -14,10 +14,12 @@ pub async fn handle_client(stream: TcpStream, db: Db) -> Result<(), Error> {
     let mut reader = BufReader::new(read_half);
     let mut out = Vec::new();
 
+    let mut transaction = None;
+
     loop {
         let args = match resp::read_command(&mut reader).await {
             Ok(Some(args)) => args,
-            Ok(None) => return Ok(()), // client closed the connection
+            Ok(None) => return Ok(()),
             Err(e) if e.kind() == io::ErrorKind::InvalidData => {
                 writer.write_all(b"-ERR protocol error\r\n").await?;
                 return Ok(());
@@ -32,7 +34,14 @@ pub async fn handle_client(stream: TcpStream, db: Db) -> Result<(), Error> {
         out.clear();
 
         let db = db.clone();
-        let frame = tokio::task::spawn_blocking(move || commands::dispatch(&db, &args)).await?;
+
+        let (frame, updated_transaction) = tokio::task::spawn_blocking(move || {
+            let frame = commands::dispatch(&db, &args, &mut transaction);
+            (frame, transaction)
+        })
+        .await?;
+
+        transaction = updated_transaction;
 
         frame.encode(&mut out);
         writer.write_all(&out).await?;
