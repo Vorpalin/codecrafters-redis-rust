@@ -536,6 +536,34 @@ impl Db {
             map = guard;
         }
     }
+
+    pub fn xread_last_ids(&self, keys: &[Vec<u8>]) -> Result<Vec<StreamId>, WrongType> {
+        let mut map = self.inner.lock().unwrap();
+        let mut ids = Vec::with_capacity(keys.len());
+
+        for key in keys {
+            purge_if_expired(&mut map, key);
+
+            let Some(entry) = map.get(key) else {
+                ids.push(StreamId::MIN);
+                continue;
+            };
+
+            let Value::Stream(stream) = &entry.value else {
+                return Err(WrongType);
+            };
+
+            let last_id = stream
+                .entries
+                .last_key_value()
+                .map(|(&id, _)| id)
+                .unwrap_or(StreamId::MIN);
+
+            ids.push(last_id);
+        }
+
+        Ok(ids)
+    }
 }
 
 #[cfg(test)]

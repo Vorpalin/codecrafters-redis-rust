@@ -53,10 +53,29 @@ fn xread(db: &Db, args: &[Vec<u8>]) -> Result<Frame, CommandError> {
     let keys = &stream_args[..stream_count];
     let id_args = &stream_args[stream_count..];
 
-    let ids: Vec<StreamId> = id_args
-        .iter()
-        .map(|id| StreamId::parse(id).map_err(|_| CommandError::InvalidStreamId))
-        .collect::<Result<_, _>>()?;
+    let ids: Vec<StreamId> = if id_args.iter().any(|id| id == b"$") {
+        // Si au moins un ID est $, on résout les IDs individuellement.
+        let mut ids = Vec::with_capacity(id_args.len());
+
+        for (key, id) in keys.iter().zip(id_args.iter()) {
+            if id == b"$" {
+                let last_ids = db
+                    .xread_last_ids(std::slice::from_ref(key))
+                    .map_err(|_| CommandError::WrongType)?;
+
+                ids.push(last_ids[0]);
+            } else {
+                ids.push(StreamId::parse(id).map_err(|_| CommandError::InvalidStreamId)?);
+            }
+        }
+
+        ids
+    } else {
+        id_args
+            .iter()
+            .map(|id| StreamId::parse(id).map_err(|_| CommandError::InvalidStreamId))
+            .collect::<Result<_, _>>()?
+    };
 
     let results = db
         .xread(keys, &ids, count, block)
