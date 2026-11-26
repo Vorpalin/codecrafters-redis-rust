@@ -13,6 +13,12 @@ pub enum StreamIdInput {
 #[derive(Debug, PartialEq, Eq)]
 pub struct WrongType;
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum IncrError {
+    WrongType,
+    InvalidInteger,
+}
+
 struct Stream {
     entries: BTreeMap<StreamId, StreamEntry>,
     last_generated_id: StreamId,
@@ -565,7 +571,7 @@ impl Db {
         Ok(ids)
     }
 
-    pub fn incr(&self, key: &[u8]) -> Result<i64, WrongType> {
+    pub fn incr(&self, key: &[u8]) -> Result<i64, IncrError> {
         let mut map = self.inner.lock().unwrap();
         purge_if_expired(&mut map, key);
 
@@ -575,12 +581,18 @@ impl Db {
         });
 
         let Value::String(s) = &mut entry.value else {
-            return Err(WrongType);
+            return Err(IncrError::WrongType);
         };
 
-        let current = std::str::from_utf8(s).map_err(|_| WrongType)?;
-        let current_value: i64 = current.parse().map_err(|_| WrongType)?;
-        let new_value = current_value.checked_add(1).ok_or(WrongType)?;
+        let current = std::str::from_utf8(s).map_err(|_| IncrError::InvalidInteger)?;
+
+        let current_value = current
+            .parse::<i64>()
+            .map_err(|_| IncrError::InvalidInteger)?;
+
+        let new_value = current_value
+            .checked_add(1)
+            .ok_or(IncrError::InvalidInteger)?;
 
         *s = new_value.to_string().into_bytes();
 
