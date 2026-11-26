@@ -624,7 +624,7 @@ impl Db {
             .collect()
     }
 
-    pub fn discard(&self, multi: Multi) {
+    pub fn discard(&self, mut multi: Multi) {
         multi.commands.clear();
     }
 }
