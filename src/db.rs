@@ -627,6 +627,13 @@ impl Db {
     pub fn discard(&self, mut multi: Multi) {
         multi.commands.clear();
     }
+
+    pub fn watch(&self, keys: &[Vec<u8>]) {
+        let mut map = self.inner.lock().unwrap();
+        for key in keys {
+            purge_if_expired(&mut map, key);
+        }
+    }
 }
 
 #[cfg(test)]

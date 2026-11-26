@@ -17,6 +17,7 @@ pub mod ping;
 pub mod rpush;
 pub mod set;
 pub mod r#type;
+pub mod watch;
 pub mod xadd;
 pub mod xlen;
 pub mod xrange;
@@ -105,6 +106,7 @@ static REGISTRY: LazyLock<HashMap<&'static str, &'static Command>> = LazyLock::n
         &xrange::COMMAND,
         &xread::COMMAND,
         &xlen::COMMAND,
+        &watch::COMMAND,
         &incr::COMMAND,
     ]
     .into_iter()
