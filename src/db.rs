@@ -452,6 +452,89 @@ impl Db {
 
         Ok(result)
     }
+
+    pub fn xlen(&self, key: &[u8]) -> Result<usize, WrongType> {
+        let mut map = self.inner.lock().unwrap();
+        purge_if_expired(&mut map, key);
+
+        match map.get(key).map(|e| &e.value) {
+            None => Ok(0),
+            Some(Value::Stream(stream)) => Ok(stream.entries.len()),
+            _ => Err(WrongType),
+        }
+    }
+
+    pub fn xread(
+        &self,
+        keys: &[Vec<u8>],
+        ids: &[StreamId],
+        count: Option<usize>,
+        block: Option<Duration>,
+    ) -> Result<Vec<(Vec<u8>, Vec<(StreamId, Vec<(Vec<u8>, Vec<u8>)>)>)>, WrongType> {
+        use std::ops::Bound::{Excluded, Unbounded};
+
+        let deadline = block
+            .filter(|duration| !duration.is_zero())
+            .map(|duration| Instant::now() + duration);
+
+        let mut map = self.inner.lock().unwrap();
+
+        loop {
+            let mut results = Vec::new();
+
+            for (key, id) in keys.iter().zip(ids.iter()) {
+                purge_if_expired(&mut map, key);
+
+                let Some(entry) = map.get(key) else {
+                    continue;
+                };
+
+                let Value::Stream(stream) = &entry.value else {
+                    return Err(WrongType);
+                };
+
+                let entries: Vec<_> = stream
+                    .entries
+                    .range((Excluded(*id), Unbounded))
+                    .take(count.unwrap_or(usize::MAX))
+                    .map(|(&entry_id, entry)| (entry_id, entry.fields.clone()))
+                    .collect();
+
+                if !entries.is_empty() {
+                    results.push((key.clone(), entries));
+                }
+            }
+
+            if !results.is_empty() {
+                return Ok(results);
+            }
+
+            let Some(block_duration) = block else {
+                return Ok(Vec::new());
+            };
+
+            if block_duration.is_zero() {
+                map = self.list_changed.wait(map).unwrap();
+                continue;
+            }
+
+            let Some(deadline) = deadline else {
+                return Ok(Vec::new());
+            };
+
+            let now = Instant::now();
+
+            if now >= deadline {
+                return Ok(Vec::new());
+            }
+
+            let remaining = deadline - now;
+
+            let (guard, _) = self.list_changed.wait_timeout(map, remaining).unwrap();
+
+            map = guard;
+        }
+    }
 }
 
 #[cfg(test)]

@@ -17,7 +17,9 @@ pub mod rpush;
 pub mod set;
 pub mod r#type;
 pub mod xadd;
+pub mod xlen;
 pub mod xrange;
+pub mod xread;
 
 /// Every command has this shape. `args[0]` is the command name itself.
 /// Arity has already been validated when the handler runs.
@@ -100,6 +102,8 @@ static REGISTRY: LazyLock<HashMap<&'static str, &'static Command>> = LazyLock::n
         &r#type::COMMAND,
         &xadd::COMMAND,
         &xrange::COMMAND,
+        &xread::COMMAND,
+        &xlen::COMMAND,
     ]
     .into_iter()
     .map(|c| (c.name, c))
