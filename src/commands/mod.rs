@@ -8,6 +8,7 @@ use crate::resp::Frame;
 pub mod blpop;
 pub mod echo;
 pub mod get;
+pub mod incr;
 pub mod llen;
 pub mod lpop;
 pub mod lpush;
@@ -104,6 +105,7 @@ static REGISTRY: LazyLock<HashMap<&'static str, &'static Command>> = LazyLock::n
         &xrange::COMMAND,
         &xread::COMMAND,
         &xlen::COMMAND,
+        &incr::COMMAND,
     ]
     .into_iter()
     .map(|c| (c.name, c))
