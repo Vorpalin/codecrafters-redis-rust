@@ -422,6 +422,7 @@ impl Db {
         }
 
         stream.entries.insert(new_id, StreamEntry { fields });
+        self.list_changed.notify_all();
         stream.last_generated_id = new_id;
         Ok(new_id)
     }
@@ -475,7 +476,7 @@ impl Db {
 
         let deadline = block
             .filter(|duration| !duration.is_zero())
-            .map(|duration| Instant::now() + duration);
+            .and_then(|duration| Instant::now().checked_add(duration));
 
         let mut map = self.inner.lock().unwrap();
 
