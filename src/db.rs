@@ -474,8 +474,11 @@ impl Db {
         use std::ops::Bound::{Excluded, Unbounded};
 
         let deadline = block
-            .filter(|duration| !duration.is_zero())
-            .map(|duration| Instant::now() + duration);
+            .map(|duration| if !duration.is_zero() {
+                Instant::now() + duration
+            } else {
+                Instant::now() + Duration::from_secs(u64::MAX)
+            });
 
         let mut map = self.inner.lock().unwrap();
 
