@@ -610,6 +610,18 @@ impl Db {
             commands: Vec::new(),
         }
     }
+
+    pub fn exec(&self, multi: Multi) -> Result<Vec<Frame>, CommandError> {
+        let mut results = Vec::new();
+        for (name, args) in multi.commands {
+            let frame = dispatch(&self, &args);
+            if let Frame::Error(_) = frame {
+                return Err(CommandError::ExecError);
+            }
+            results.push(frame);
+        }
+        Ok(results)
+    }
 }
 
 #[cfg(test)]
