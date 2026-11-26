@@ -1,5 +1,5 @@
 use super::{Command, CommandError};
-use crate::db::{Db, StreamId, XAddError};
+use crate::db::{Db, StreamId, StreamIdInput, XAddError};
 use crate::resp::Frame;
 
 pub static COMMAND: Command = Command {
@@ -16,9 +16,18 @@ fn xadd(db: &Db, args: &[Vec<u8>]) -> Result<Frame, CommandError> {
     }
 
     let id = if args[2].as_slice() == b"*" {
-        None
+        StreamIdInput::Auto
+    } else if let Some(timestamp) = args[2].strip_suffix(b"-*") {
+        let timestamp = std::str::from_utf8(timestamp)
+            .ok()
+            .and_then(|s| s.parse::<u64>().ok())
+            .ok_or(CommandError::InvalidStreamId)?;
+
+        StreamIdInput::AutoSequence(timestamp)
     } else {
-        Some(StreamId::parse(&args[2]).map_err(|_| CommandError::InvalidStreamId)?)
+        StreamIdInput::Explicit(
+            StreamId::parse(&args[2]).map_err(|_| CommandError::InvalidStreamId)?,
+        )
     };
 
     let fields = field_args

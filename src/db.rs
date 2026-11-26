@@ -2,6 +2,12 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
+pub enum StreamIdInput {
+    Auto,
+    AutoSequence(u64),
+    Explicit(StreamId),
+}
+
 /// Returned when an operation is applied to a key holding a different type
 /// (e.g. `GET` on a list). Maps to Redis' `WRONGTYPE` error.
 #[derive(Debug, PartialEq, Eq)]
@@ -54,6 +60,23 @@ impl StreamId {
                 sequence: last.sequence.saturating_add(1),
             }
         }
+    }
+
+    fn with_auto_sequence(milliseconds: u64, last: Self) -> Result<Self, XAddError> {
+        let sequence = if milliseconds == last.milliseconds {
+            last.sequence
+                .checked_add(1)
+                .ok_or(XAddError::IdNotGreater)?
+        } else if milliseconds > last.milliseconds {
+            0
+        } else {
+            return Err(XAddError::IdNotGreater);
+        };
+
+        Ok(Self {
+            milliseconds,
+            sequence,
+        })
     }
 }
 
@@ -343,11 +366,15 @@ impl Db {
     pub fn xadd(
         &self,
         key: &[u8],
-        id: Option<StreamId>,
+        id: StreamIdInput,
         fields: Vec<(Vec<u8>, Vec<u8>)>,
     ) -> Result<StreamId, XAddError> {
         // Redis reserves 0-0 and requires every explicit ID to be greater.
-        if id.is_some_and(|id| id.milliseconds == 0 && id.sequence == 0) {
+        if matches!(
+            id,
+            StreamIdInput::Explicit(id)
+                if id.milliseconds == 0 && id.sequence == 0
+        ) {
             return Err(XAddError::ZeroId);
         }
 
@@ -371,8 +398,13 @@ impl Db {
         };
 
         let new_id = match id {
-            Some(id) => id,
-            None => StreamId::next_after(stream.last_generated_id),
+            StreamIdInput::Explicit(id) => id,
+
+            StreamIdInput::Auto => StreamId::next_after(stream.last_generated_id),
+
+            StreamIdInput::AutoSequence(milliseconds) => {
+                StreamId::with_auto_sequence(milliseconds, stream.last_generated_id)?
+            }
         };
 
         if new_id <= stream.last_generated_id {
@@ -540,6 +572,26 @@ mod tests {
                 vec![(b("f"), b("v"))],
             ),
             Err(XAddError::IdNotGreater)
+        );
+    }
+
+    #[test]
+    fn xadd_auto_sequence_starts_at_zero() {
+        let db = Db::default();
+
+        assert_eq!(
+            run(&db, &["XADD", "s", "1000-*", "f", "v"]),
+            Frame::Bulk(b"1000-0".to_vec())
+        );
+    }
+
+    #[test]
+    fn xadd_zero_timestamp_starts_at_one() {
+        let db = Db::default();
+
+        assert_eq!(
+            run(&db, &["XADD", "s", "0-*", "f", "v"]),
+            Frame::Bulk(b"0-1".to_vec())
         );
     }
 }
