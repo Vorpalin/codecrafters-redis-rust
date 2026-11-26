@@ -146,6 +146,18 @@ pub fn dispatch(db: &Db, args: &[Vec<u8>], transaction: &mut Option<crate::db::M
 
             return Frame::Array(db.exec(multi));
         }
+        "DISCARD" => {
+            if args.len() != 1 {
+                return Frame::Error("ERR wrong number of arguments for 'discard' command".into());
+            }
+
+            let Some(multi) = transaction.take() else {
+                return Frame::Error("ERR DISCARD without MULTI".into());
+            };
+
+            db.discard(multi);
+            return Frame::Simple("OK".into());
+        }
 
         _ => {}
     }

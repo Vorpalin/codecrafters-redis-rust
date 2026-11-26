@@ -623,6 +623,10 @@ impl Db {
             .map(|args| crate::commands::dispatch_immediate(self, args))
             .collect()
     }
+
+    pub fn discard(&self, multi: Multi) {
+        multi.commands.clear();
+    }
 }
 
 #[cfg(test)]
