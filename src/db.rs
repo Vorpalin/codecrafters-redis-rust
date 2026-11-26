@@ -19,6 +19,11 @@ pub enum IncrError {
     InvalidInteger,
 }
 
+pub struct Multi {
+    db: Db,
+    commands: Vec<(String, Vec<Vec<u8>>)>,
+}
+
 struct Stream {
     entries: BTreeMap<StreamId, StreamEntry>,
     last_generated_id: StreamId,
@@ -597,6 +602,13 @@ impl Db {
         *s = new_value.to_string().into_bytes();
 
         Ok(new_value)
+    }
+
+    pub fn multi(&self) -> Multi {
+        Multi {
+            db: self.clone(),
+            commands: Vec::new(),
+        }
     }
 }
 

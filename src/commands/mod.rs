@@ -13,6 +13,7 @@ pub mod llen;
 pub mod lpop;
 pub mod lpush;
 pub mod lrange;
+pub mod multi;
 pub mod ping;
 pub mod rpush;
 pub mod set;
@@ -106,6 +107,7 @@ static REGISTRY: LazyLock<HashMap<&'static str, &'static Command>> = LazyLock::n
         &xread::COMMAND,
         &xlen::COMMAND,
         &incr::COMMAND,
+        &multi::COMMAND,
     ]
     .into_iter()
     .map(|c| (c.name, c))
