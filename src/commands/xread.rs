@@ -64,6 +64,10 @@ fn xread(db: &Db, args: &[Vec<u8>]) -> Result<Frame, CommandError> {
             crate::db::WrongType => CommandError::WrongType,
         })?;
 
+    if results.is_empty() {
+        return Ok(Frame::NullArray);
+    }
+
     Ok(Frame::Array(
         results
             .into_iter()
