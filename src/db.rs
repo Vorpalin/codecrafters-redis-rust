@@ -415,6 +415,29 @@ impl Db {
         stream.last_generated_id = new_id;
         Ok(new_id)
     }
+
+    pub fn xrange(
+        &self,
+        key: &[u8],
+        start: StreamId,
+        end: StreamId,
+    ) -> Result<Vec<(StreamId, Vec<(Vec<u8>, Vec<u8>)>)>, WrongType> {
+        let mut map = self.inner.lock().unwrap();
+        purge_if_expired(&mut map, key);
+
+        let stream = match map.get(key).map(|e| &e.value) {
+            None => return Ok(Vec::new()),
+            Some(Value::Stream(stream)) => stream,
+            _ => return Err(WrongType),
+        };
+
+        let range = stream.entries.range(start..=end);
+        let result = range
+            .map(|(&id, entry)| (id, entry.fields.clone()))
+            .collect();
+
+        Ok(result)
+    }
 }
 
 #[cfg(test)]
